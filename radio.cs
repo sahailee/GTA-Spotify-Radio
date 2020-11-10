@@ -38,7 +38,6 @@ namespace GTASpot
         //Find out why random gta 5 ads play
         //If spotify is paused the game does not play it
         private static SpotifyClient spotify;
-        private bool isInVehicle;
         private bool isEngineOn;
         private bool isSpotifyRadio;
         private bool obtainedSpotifyClient;
@@ -60,7 +59,7 @@ namespace GTASpot
         {
             obtainedSpotifyClient = false;
             Logger.Log("Initiating");
-            isInVehicle = false;
+            isEngineOn = false;
             isSpotifyRadio = false;
             isEngineOn = false;
             volume = 100;
@@ -237,11 +236,11 @@ namespace GTASpot
                 
         }
 
-        private void setInVehicle(bool status)
+        private void setEngine(bool status)
         {
             if(obtainedSpotifyClient)
             {
-                isInVehicle = status;
+                isEngineOn = status;
             }
         }
 
@@ -479,9 +478,9 @@ namespace GTASpot
             return null;
         }
 
-        private bool getInVehicle()
+        private bool getEngineStatus()
         {
-            return isInVehicle;
+            return isEngineOn;
         }
 
         private void OnTick(object sender, EventArgs e)
@@ -492,40 +491,42 @@ namespace GTASpot
                 modMenuPool.ProcessMenus();
             }
             //Handle Spotify Radio
-            if(Game.Player.Character.CurrentVehicle != null && !getInVehicle() && Game.RadioStation.ToString().Equals("-1") && !isSpotifyRadio)
+            if(Game.Player.Character.CurrentVehicle != null && Game.Player.Character.CurrentVehicle.IsEngineRunning && !getEngineStatus() && Game.RadioStation.ToString().Equals("-1") && !isSpotifyRadio)
             {
-                setInVehicle(true);
+                setEngine(true);
                 setRadioStation(true);
-                Logger.Log("1:" + Game.Player.Character.CurrentVehicle.IsEngineRunning);
             }
-            else if(Game.Player.Character.CurrentVehicle == null && getInVehicle() && !Game.RadioStation.ToString().Equals("-1") && isSpotifyRadio)
+            else if(Game.Player.Character.CurrentVehicle == null && getEngineStatus() && !Game.RadioStation.ToString().Equals("-1") && isSpotifyRadio)
             {
-                setInVehicle(false);
+                setEngine(false);
                 setRadioStation(false);
-                Logger.Log("2:" + Game.Player.Character.CurrentVehicle.IsEngineRunning);
             }
-            else if(Game.Player.Character.CurrentVehicle == null && getInVehicle())
+            else if(Game.Player.Character.CurrentVehicle == null && getEngineStatus())
             {
-                setInVehicle(false);
+                setEngine(false);
                 setRadioStation(false);
-                Logger.Log("3:" + Game.Player.Character.CurrentVehicle.IsEngineRunning);
             }
-            else if (Game.Player.Character.CurrentVehicle != null && !getInVehicle())
+            else if (Game.Player.Character.CurrentVehicle != null && Game.Player.Character.CurrentVehicle.IsEngineRunning && !getEngineStatus())
             {
-                setInVehicle(true);
-                Logger.Log("4:" + Game.Player.Character.CurrentVehicle.IsEngineRunning);
+                setEngine(true);
             }
-            else if(getInVehicle() && Game.RadioStation.ToString().Equals("-1") && !isSpotifyRadio)
+            else if(Game.Player.Character.CurrentVehicle != null && !Game.Player.Character.CurrentVehicle.IsEngineRunning && getEngineStatus() && isSpotifyRadio)
+            {
+                setEngine(false);
+                setRadioStation(false);
+            }
+            else if(Game.Player.Character.CurrentVehicle != null && !Game.Player.Character.CurrentVehicle.IsEngineRunning && getEngineStatus())
+            {
+                setEngine(false);
+            }
+            else if(getEngineStatus() && Game.RadioStation.ToString().Equals("-1") && !isSpotifyRadio)
             {
                 setRadioStation(true);
-                Logger.Log("5:" + Game.Player.Character.CurrentVehicle.IsEngineRunning);
             }
-            else if(getInVehicle() && !Game.RadioStation.ToString().Equals("-1") && isSpotifyRadio)
+            else if(getEngineStatus() && !Game.RadioStation.ToString().Equals("-1") && isSpotifyRadio)
             {
                 setRadioStation(false);
-                Logger.Log("6:" + Game.Player.Character.CurrentVehicle.IsEngineRunning);
             }
-            //Game.Player.Character.CurrentVehicle.IsEngineRunning
 
         }
 
