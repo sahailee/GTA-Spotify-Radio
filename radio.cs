@@ -11,7 +11,7 @@ using NativeUI;
 using System.Net.Http;
 using System.Diagnostics;
 using System.Windows.Automation;
-
+using GTA.Native;
 
 namespace GTASpot
 {
@@ -25,18 +25,8 @@ namespace GTASpot
             File.AppendAllText("GTASpotify.log", DateTime.Now + " : " + message + Environment.NewLine);
         }
     }
-
     public class SpotifyRadio : Script
     {
-        //TODO
-        //Mute spotify if engine is off
-        //Mute spotify if game is paused
-        //Mute if shot while spotify is on
-        //WHen u have it playing leave ur car and then steal someone elses u can hear spotify for a few seconds
-        //Use other browsers if chrome is not present
-        //Alt can try to make cefsharp work
-        //Find out why random gta 5 ads play
-        //If spotify is paused the game does not play it
         private static SpotifyClient spotify;
         private bool isEngineOn;
         private bool isSpotifyRadio;
@@ -52,22 +42,35 @@ namespace GTASpot
 
         private UIMenu shuffleSubMenu;
         private UIMenu playlistSubMenu;
+        private Scaleform DashboardScaleform;
+
+        private string radioName = "RADIO_47_SPOTIFY_RADIO";
 
         private string code;
         private static readonly HttpClient client = new HttpClient();
         public SpotifyRadio()
         {
+            
             obtainedSpotifyClient = false;
-            Logger.Log("Initiating");
             isEngineOn = false;
             isSpotifyRadio = false;
             isEngineOn = false;
             volume = 100;
             LoginToSpotInit();
-            setupMenu();
-            KeyDown += OnKeyDown;
-            Tick += OnTick;
-            Logger.Log("Done Iniating");
+           
+            if (obtainedSpotifyClient)
+            {
+                setupMenu();
+              //DashboardScaleform = new Scaleform("dashboard");
+                KeyDown += OnKeyDown;
+                Tick += OnTick;
+            }
+            else
+            {
+                Logger.Log("ERROR: Did not login to Spotify");
+            }
+
+
         }
 
         private void setupMenu()
@@ -229,11 +232,29 @@ namespace GTASpot
             {
                 mainMenu.Visible = !mainMenu.Visible;
             }
-            else if(e.KeyCode == Keys.F11)
+
+        }
+
+        private void displaySpotifyTrackOnRadio(string artist, string track)
+        {
+            try
             {
-                GTA.UI.Notification.Show(Game.Player.Character.CurrentVehicle.IsEngineRunning.ToString());
+                // Call function.
+                DashboardScaleform.CallFunction("SET_RADIO",
+                        "", "Spotify Radio",
+                        artist, track);
             }
-                
+            catch (Exception exception)
+            {
+                Logger.Log(exception.ToString());
+            }
+
+        }
+
+        public string getCurrentStationName()
+        {
+            var name = Function.Call<string>(GTA.Native.Hash.GET_PLAYER_RADIO_STATION_NAME);
+            return name;
         }
 
         private void setEngine(bool status)
@@ -244,18 +265,28 @@ namespace GTASpot
             }
         }
 
-        private async void setRadioStation(bool status)
+        private async void mute()
+        {
+            await spotifySetVolume(0);
+        } 
+
+        private async void unmute()
+        {
+            await spotifySetVolume(volume);
+        }
+
+        private void setRadioStation(bool status)
         {
             if(obtainedSpotifyClient)
             {
                 isSpotifyRadio = status;
                 if(status)
                 {
-                    await spotifySetVolume(volume);
+                    unmute();
                 }
                 else
                 {
-                    await spotifySetVolume(0);
+                    mute();
                 }                
             }
         }
@@ -478,6 +509,39 @@ namespace GTASpot
             return null;
         }
 
+        private async Task<FullTrack> spotifyGetCurrentTrack()
+        {
+            int i = 0;
+            do
+            {
+                try
+                {
+                    var current = await spotify.Player.GetCurrentlyPlaying(new PlayerCurrentlyPlayingRequest());
+                    var track = current.Item as FullTrack;
+                    return track;
+
+                }
+                catch (APIUnauthorizedException)
+                {
+                    GuaranteeLogin();
+                }
+                catch (APIException ex)
+                {
+                    Logger.Log("Shuffle change failed: " + ex.Response?.StatusCode + ex.Message);
+                    i = -1;
+                }
+            } while (i == 0);
+            return null;
+        }
+
+        private void updateInGameRadio()
+        {
+            var track = spotifyGetCurrentTrack();
+            track.Wait();
+            var t = track.Result;
+            displaySpotifyTrackOnRadio(t.Name, t.Artists[0].Name);
+        }
+
         private bool getEngineStatus()
         {
             return isEngineOn;
@@ -491,12 +555,12 @@ namespace GTASpot
                 modMenuPool.ProcessMenus();
             }
             //Handle Spotify Radio
-            if(Game.Player.Character.CurrentVehicle != null && Game.Player.Character.CurrentVehicle.IsEngineRunning && !getEngineStatus() && Game.RadioStation.ToString().Equals("-1") && !isSpotifyRadio)
+            if(Game.Player.Character.CurrentVehicle != null && Game.Player.Character.CurrentVehicle.IsEngineRunning && !getEngineStatus() && getCurrentStationName().Equals(radioName) && !isSpotifyRadio)
             {
                 setEngine(true);
                 setRadioStation(true);
             }
-            else if(Game.Player.Character.CurrentVehicle == null && getEngineStatus() && !Game.RadioStation.ToString().Equals("-1") && isSpotifyRadio)
+            else if(Game.Player.Character.CurrentVehicle == null && getEngineStatus() && !getCurrentStationName().Equals(radioName) && isSpotifyRadio)
             {
                 setEngine(false);
                 setRadioStation(false);
@@ -519,76 +583,69 @@ namespace GTASpot
             {
                 setEngine(false);
             }
-            else if(getEngineStatus() && Game.RadioStation.ToString().Equals("-1") && !isSpotifyRadio)
+            else if(getEngineStatus() && getCurrentStationName().Equals(radioName) && !isSpotifyRadio)
             {
                 setRadioStation(true);
             }
-            else if(getEngineStatus() && !Game.RadioStation.ToString().Equals("-1") && isSpotifyRadio)
+            else if(getEngineStatus() && !getCurrentStationName().Equals(radioName) && isSpotifyRadio)
             {
                 setRadioStation(false);
             }
+           /* else if(isSpotifyRadio)
+            {
+                updateInGameRadio();
+
+            }*/
 
         }
 
         private void LoginToSpotInit()
         {
             GuaranteeLogin();
-            //Logger.Log("Signed in successfully");
-            obtainedSpotifyClient = true;
             initialSpotifyRequests();
         }
 
         private async void initialSpotifyRequests()
         {
-            await spotifySetVolume(0);
-            await spotifyResumePlayback();
+            if (obtainedSpotifyClient)
+            {
+                await spotifySetVolume(0);
+                await spotifyResumePlayback();
+            }
         }
 
         private void GuaranteeLogin()
         {
-            BrowserUtil.Open(new Uri("https://gta-spotify-radio.web.app/login"));
-            string url;
-            do
+            DisplayBrowser();
+            if(code == null)
             {
-                url = Checkurl("gta-spotify-radio.web.app/index.html?access_token");
-            } while (url.Length == 0);
-            string tokenLabel = "access_token=";
-            code = url.Substring(url.IndexOf(tokenLabel) + tokenLabel.Length);
-            spotify = new SpotifyClient(code);
-            
-        }
-        private string Checkurl(string loginUrl)
-        {
-            foreach (Process process in Process.GetProcessesByName("chrome"))
-            {
-                string url = GetChromeUrl(process);
-                if (url == null)
-                    continue;
-                if(url.Contains(loginUrl))
-                {
-                    return url;
-                }
-
+                Logger.Log("ERROR: Did not login to Spotify");
+                obtainedSpotifyClient = false;
             }
-            return "";
+            else if(code.Length != 0)
+            {
+                spotify = new SpotifyClient(code);
+                obtainedSpotifyClient = true;
+            }
         }
 
-        private static string GetChromeUrl(Process process)
+        private void DisplayBrowser()
         {
-            if (process == null)
-                throw new ArgumentNullException("process");
+            
+            var proc = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "spotifyRadio/SpotifyRadio.exe",
+                    Arguments = "",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow = true
+                }
+            };
+            proc.Start();
+            code = proc.StandardOutput.ReadLine();
 
-            if (process.MainWindowHandle == IntPtr.Zero)
-                return null;
-
-            AutomationElement element = AutomationElement.FromHandle(process.MainWindowHandle);
-            if (element == null)
-                return null;
-
-            AutomationElementCollection elm1 = element.FindAll(TreeScope.Subtree, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit));
-            AutomationElement elm = elm1[0];
-            string vp = ((ValuePattern)elm.GetCurrentPattern(ValuePattern.Pattern)).Current.Value as string;
-            return vp;
         }
 
     }
