@@ -3,7 +3,8 @@ A gta 5 mod
 
 <b>About:</b>
 This will add a new radio to the radio wheel that will control any Spotify playback currently playing.
-Video Showcase: <a href="https://www.youtube.com/watch?v=6DNEsgMy9Uk">https://www.youtube.com/watch?v=6DNEsgMy9Uk</a>
+
+<b>Video Showcase:</b> <a href="https://www.youtube.com/watch?v=6DNEsgMy9Uk">https://www.youtube.com/watch?v=6DNEsgMy9Uk</a>
 
 <b>Download:</b>
 <a href="https://www.gta5-mods.com/scripts/spotify-radio-mod">https://www.gta5-mods.com/scripts/spotify-radio-mod</a>
