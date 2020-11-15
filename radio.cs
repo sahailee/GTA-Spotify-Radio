@@ -251,10 +251,15 @@ namespace GTASpot
 
         }
 
-        public string getCurrentStationName()
+        private string getCurrentStationName()
         {
             var name = Function.Call<string>(GTA.Native.Hash.GET_PLAYER_RADIO_STATION_NAME);
             return name;
+        }
+
+        private void disableRadioAds()
+        {
+            Function.Call(GTA.Native.Hash.SET_RADIO_STATION_MUSIC_ONLY, radioName, true);
         }
 
         private void setEngine(bool status)
@@ -603,6 +608,7 @@ namespace GTASpot
         {
             GuaranteeLogin();
             initialSpotifyRequests();
+            disableRadioAds();
         }
 
         private async void initialSpotifyRequests()
