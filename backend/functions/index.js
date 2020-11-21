@@ -19,7 +19,7 @@ app.get('/login', function(req, res) {
     querystring.stringify({
       response_type: 'code',
       client_id: CLIENT_ID,
-      scope: 'user-read-private user-read-email user-modify-playback-state user-read-currently-playing user-read-playback-state',
+      scope: 'user-read-private user-read-email user-modify-playback-state user-read-currently-playing user-read-playback-state user-library-read',
       redirect_uri
     }))
 })

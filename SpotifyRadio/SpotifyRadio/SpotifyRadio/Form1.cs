@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -30,6 +31,7 @@ namespace SpotifyRadio
             private void InitializeChromium()
             {
                 CefSettings settings = new CefSettings();
+                settings.CachePath = Path.GetFullPath("spotifyRadio/cache"); ;
 
                 Cef.Initialize(settings);
 
@@ -39,7 +41,6 @@ namespace SpotifyRadio
 
                 this.Controls.Add(chromeBroswer);
 
-                chromeBroswer.Dock = DockStyle.Fill;
             }
 
             private void Form1_FormClosing(object sender, FormClosedEventArgs e)
