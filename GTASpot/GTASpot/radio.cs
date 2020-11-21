@@ -92,8 +92,6 @@ namespace GTASpot
             }
             defaultPlaylistId = config.GetValue<string>("Options", "DefaultPlaylist", "");
             GuaranteeLogin();
-            Logger.Log("Volume: " + volume);
-            Logger.Log("Playlist: " + defaultPlaylistId);
             if (obtainedSpotifyClient)
             {
                 InitialSpotifyRequests();
@@ -318,42 +316,48 @@ namespace GTASpot
                         if (defaultPlaylistId.Length != 0)
                         {
                             request.ContextUri = "spotify:playlist:" + defaultPlaylistId;
-                            Logger.Log("0");
                         }                 
                         else
                         {
                             request.Uris = SpotifyGetSavedTracks();
-                            Logger.Log("0.1");
                         }
                         
                     }
                     else
                     {
-                        if(curr.Context == null && defaultPlaylistId.Length != 0)
-                        {
-                            request.ContextUri = "spotify:playlist:" + defaultPlaylistId;
-                            Logger.Log("1");
-                        }
-                        else if(curr.Context == null)
-                        {
-                            request.Uris = SpotifyGetSavedTracks();
-                            request.Uris[0] = ((FullTrack)curr.Item).Uri;
-                            request.OffsetParam = new PlayerResumePlaybackRequest.Offset();
-                            request.OffsetParam.Position = 0;
-                            request.PositionMs = curr.ProgressMs;
-                            Logger.Log("1.2");
-                        }
-                        else
+                        if(curr.Context != null)
                         {
                             request.ContextUri = curr.Context.Uri;
-                            Logger.Log("1.3");
+                            if (curr.Item != null)
+                            {
+                                request.OffsetParam = new PlayerResumePlaybackRequest.Offset();
+                                request.OffsetParam.Uri = ((FullTrack)curr.Item).Uri;
+                                request.PositionMs = curr.ProgressMs;
+                            }
+
                         }
+                        else if(defaultPlaylistId.Length != 0)
+                        {
+                            request.ContextUri = "spotify:playlist:" + defaultPlaylistId;
+                        }
+                        else 
+                        {
+                            request.Uris = SpotifyGetSavedTracks();
+                            if(curr.Item != null)
+                            {
+                                request.Uris[0] = ((FullTrack)curr.Item).Uri;
+                                request.OffsetParam = new PlayerResumePlaybackRequest.Offset();
+                                request.OffsetParam.Uri = request.Uris[0];
+                                request.PositionMs = curr.ProgressMs;
+                            }
+                            
+                        }
+
                     }
                     try {
                         var task = spotify.Player.ResumePlayback(request);
                         task.Wait();
-                        Logger.Log("2: " + isSpotifyRadio);
-                        if(isSpotifyRadio)
+                        if (isSpotifyRadio)
                         {
                             SpotifySetVolume(volume);
                         }
@@ -361,7 +365,6 @@ namespace GTASpot
                         {
                             SpotifySetVolume(0);
                         }
-                        Logger.Log("3");
                         modMenuPool.CloseAllMenus();
                     }
                     catch(AggregateException ex)
@@ -554,7 +557,6 @@ namespace GTASpot
             }
             catch(NoActiveDeviceException)
             {
-                Logger.Log("5!");
                 modMenuPool.CloseAllMenus();
                 activeDevices.Visible = true;
                 GTA.UI.Notification.Show("No active device found. Please set an active device using the menu");
