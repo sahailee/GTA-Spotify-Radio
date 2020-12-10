@@ -12,6 +12,26 @@ app.use(express.json())
 
 let redirect_uri = REDIRECT_URI
   
+app.get('/success', function(req, res) {
+  var html = `<!DOCTYPE html>
+  <html lang="en">
+      <head>
+          <link rel="stylesheet" href="styles.css">
+      </head>
+      <body>
+        <div class="alert">
+              <h2>Login Complete. Return to GTA 5.</h2>
+              <h3>You may close this tab.</h3>
+          </div>
+          <div class="container center">
+              <h1>GTA 5 Spotify Radio Mod</h1>
+          </div>
+      </body>
+  </html>`;
+  res.writeHead(200, {"Content-Type": "text/HTML"});
+  res.write(html);
+  res.end();
+});
 
 app.get('/login', function(req, res) {
   let querystring = require('querystring')
@@ -44,7 +64,7 @@ app.get('/callback', function(req, res) {
   request.post(authOptions, function(error, response, body) {
     var access_token = body.access_token
     let uri = FRONTEND_URI
-    res.redirect(uri + '?access_token=' + access_token)
+    res.redirect(uri + '/success?access_token=' + access_token)
   })
 })
 
