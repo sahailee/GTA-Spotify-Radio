@@ -48,8 +48,8 @@ Press F10 in game for additional control over your music like setting your Radio
 <ol>
 	<li>Use OpenIV to edit the file:  <i>"mods\update\update.rpf\common\data\dlclist.xml"</i></li>
 	<li>Add this to the dlclist.xml:<br><i><item>dlcpacks:/spotifyradio/</item></i><br></li>
-    <li>Use OpenIV to place the <i>"hud.gfx"</i> file in <i>"mods\update.rpf\x64\patch\data\cdimages\scaleform_generic.rpf"</i></li>
-    <li>Use OpenIV in Edit mode to open <br><i>"mods\update.rpf\x64\patch\data\cdimages\scaleform_generic.rpf\hud.ytd"</i><br></li>
+    <li>Use OpenIV to place the <i>"hud.gfx"</i> file in <i>"mods\update\update.rpf\x64\patch\data\cdimages\scaleform_generic.rpf"</i></li>
+    <li>Use OpenIV in Edit mode to open <br><i>"mods\update\update.rpf\x64\patch\data\cdimages\scaleform_generic.rpf\hud.ytd"</i><br></li>
 	<li>Select <i>"gtav_radio_stations_textures05_512"</i> in the texture editor</li>
 	<li>Press <i>"Replace"</i> and select <i>"gtav_radio_stations_textures05_512"</i> from this mod's files</li>
 	<li>Close and Save</li>

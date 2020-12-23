@@ -113,8 +113,10 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="MoodMatch.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="radio.cs" />
+    <Compile Include="SpotifyController.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />

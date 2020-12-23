@@ -3,11 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Windows.Forms;
 using GTA;
-using SpotifyAPI.Web;
 using NativeUI;
-using System.Net.Http;
-using System.Diagnostics;
 using GTA.Native;
+using SpotifyAPI.Web;
 
 namespace GTASpot
 {
@@ -43,12 +41,11 @@ namespace GTASpot
     }
     public class SpotifyRadio : Script
     {
-        private static SpotifyClient spotify;
         private bool isEngineOn;
         private bool isSpotifyRadio;
-        private bool obtainedSpotifyClient;
         private int volume;
         private string defaultPlaylistId;
+        private SpotifyController spotify;
 
         private UIMenu mainMenu;
         private MenuPool modMenuPool;
@@ -58,7 +55,7 @@ namespace GTASpot
         private UIMenuItem volumeLevel;
         private UIMenuItem displayTrackName;
 
-        private UIMenu shuffleSubMenu;
+        private UIMenuCheckboxItem shuffleButton;
         private UIMenu playlistSubMenu;
         private UIMenuListItem playlistList;
 
@@ -66,22 +63,31 @@ namespace GTASpot
         private UIMenuListItem deviceList;
         private int deviceListIndex = 1;
 
+        private UIMenuCheckboxItem moodButton;
+        private bool matchMood;
+        private int moodUpdateTime = 2000;
+        private int defaultMoodUpdateTime = 2000; // 30 seconds
+        private int time;
+        private bool hasDevice;
+        private MoodMatch moodMatcher;
+
         private Scaleform DashboardScaleform;
 
         private string radioName = "RADIO_47_SPOTIFY_RADIO";
-
-        private string code;
-        private static readonly HttpClient client = new HttpClient();
 
         private ScriptSettings config;
         private Keys menuKey;
         public SpotifyRadio()
         {
-            
-            obtainedSpotifyClient = false;
+
+            spotify = new SpotifyController();
+            moodMatcher = new MoodMatch();
             isEngineOn = false;
             isSpotifyRadio = false;
             isEngineOn = false;
+            matchMood = false;
+            hasDevice = false;
+            time = 0;
 
             File.Create("scripts/GTASpotify.log").Close();
             config = ScriptSettings.Load("scripts/GTASpotify.ini");
@@ -91,13 +97,13 @@ namespace GTASpot
                 volume = 100;
             }
             defaultPlaylistId = config.GetValue<string>("Options", "DefaultPlaylist", "");
-            GuaranteeLogin();
-            if (obtainedSpotifyClient)
+            spotify.GuaranteeLogin();
+            if (spotify.obtainedSpotifyClient)
             {
-                InitialSpotifyRequests();
+                spotify.InitialSpotifyRequests(defaultPlaylistId);
                 DisableRadioAds();
                 SetupMenu();
-              //DashboardScaleform = new Scaleform("dashboard");
+                DashboardScaleform = new Scaleform("dashboard");
                 KeyDown += OnKeyDown;
                 Tick += OnTick;
             }
@@ -124,58 +130,34 @@ namespace GTASpot
             volumeLevel = new UIMenuItem("Set Volume Level");
             displayTrackName = new UIMenuItem("Get Track Name");
 
+            var current = spotify.GetCurrentPlayback();
+            if(current == null)
+            {
+                shuffleButton = new UIMenuCheckboxItem("Shuffle Mode", false);
+            }
+            else
+            {
+                shuffleButton = new UIMenuCheckboxItem("Shuffle Mode", current.ShuffleState);
+            }
+            moodButton = new UIMenuCheckboxItem("Match Mood", false);
+
 
             mainMenu.AddItem(playPausePlayback);
             mainMenu.AddItem(skipTrack);
             mainMenu.AddItem(prevTrack);
             mainMenu.AddItem(volumeLevel);
+            mainMenu.AddItem(shuffleButton);
 
 
             mainMenu.OnItemSelect += OnMainMenuItemSelect;
-            SetupShuffleMenu();
+            mainMenu.OnCheckboxChange += OnCheckboxChange;
             SetupPlaylistMenu();
             SetupActiveDevicesMenu();
             mainMenu.AddItem(displayTrackName);
+            mainMenu.AddItem(moodButton);
 
             mainMenu.RefreshIndex();
 
-        }
-
-        /*
-         * Sets up the submenu that will enable or disable shuffle mode
-         */
-        private void SetupShuffleMenu()
-        {
-            shuffleSubMenu = modMenuPool.AddSubMenu(mainMenu, "Set Shuffle Mode");
-
-            List<dynamic> shuffleStates = new List<dynamic>();
-            shuffleStates.Add("On");
-            shuffleStates.Add("Off");
-            UIMenuListItem shuffleMode = new UIMenuListItem("Toggle Shuffle: ", shuffleStates, 0);
-            shuffleSubMenu.AddItem(shuffleMode);
-
-            UIMenuItem setShuffle = new UIMenuItem("Confirm Changes");
-            shuffleSubMenu.AddItem(setShuffle);
-
-            shuffleSubMenu.RefreshIndex();
-
-            shuffleSubMenu.OnItemSelect += async (sender, item, index) =>
-            {
-                if (item == setShuffle)
-                {
-                    int listIndex = shuffleMode.Index;
-                    if (listIndex == 0)
-                    {
-                        SpotifySetShuffle(true);
-                    }
-                    else
-                    {
-                        SpotifySetShuffle(false);
-                    }
-                    
-                    modMenuPool.CloseAllMenus();
-                }
-            };
         }
 
         /*
@@ -185,14 +167,17 @@ namespace GTASpot
         {
             playlistNames.Clear();
             playlistUris.Clear();
-            var page = SpotifyGetCurrentPlaylist();
-            var allPages = SpotifyPage(page);
+            var page = spotify.GetCurrentPlaylist();
             playlistNames.Add("Saved Tracks");
             playlistUris.Add("");
-            foreach (var item in allPages)
+            var allPages = spotify.Page(page);
+            if (allPages != null)
             {
-                playlistNames.Add(item.Name);
-                playlistUris.Add(item.Uri);
+                foreach (var item in allPages)
+                {
+                    playlistNames.Add(item.Name);
+                    playlistUris.Add(item.Uri);
+                }
             }
             playlistList = new UIMenuListItem("Pick Playlist: ", playlistNames, 0);
         }
@@ -225,27 +210,15 @@ namespace GTASpot
                 if (item == setPlaylist)
                 {
                     int listIndex = playlistList.Index;
-                    var request = new PlayerResumePlaybackRequest();
                     if(listIndex == 0)
                     {
-                        request.Uris = SpotifyGetSavedTracks();
+                        spotify.ResumePlayback("");
                     }
                     else
                     {
-                        request.ContextUri = playlistUris[listIndex];
+                        spotify.ResumePlayback(playlistUris[listIndex]);
                     }
-                    try
-                    {
-                        var isSuccess = await spotify.Player.ResumePlayback(request);
-                        if (!isSuccess)
-                        {
-                            Logger.Log("Playlist resume unsuccessful");
-                        }
-                    }
-                    catch (APIException ex)
-                    {
-                        Logger.Log("Playlist resume failed: " + ex.Message);
-                    }
+                    
                     modMenuPool.CloseAllMenus();
                 }
                 else if(item == refresh)
@@ -267,7 +240,7 @@ namespace GTASpot
         {
             deviceNames.Clear();
             deviceIDs.Clear();
-            var devices = SpotifyGetDevices();
+            var devices = spotify.GetDevices();
             if (devices == null || devices.Devices.Count == 0)
             {
                 deviceNames.Add("");
@@ -308,63 +281,18 @@ namespace GTASpot
                 if (item == setDevice)
                 {
                     int listIndex = deviceList.Index;
-                    var request = new PlayerResumePlaybackRequest();
-                    request.DeviceId = deviceIDs[listIndex];
-                    var curr = SpotifyGetCurrentlyPlaying();
-                    if (curr == null)
-                    {
-                        if (defaultPlaylistId.Length != 0)
-                        {
-                            request.ContextUri = "spotify:playlist:" + defaultPlaylistId;
-                        }                 
-                        else
-                        {
-                            request.Uris = SpotifyGetSavedTracks();
-                        }
-                        
-                    }
-                    else
-                    {
-                        if(curr.Context != null)
-                        {
-                            request.ContextUri = curr.Context.Uri;
-                            if (curr.Item != null)
-                            {
-                                request.OffsetParam = new PlayerResumePlaybackRequest.Offset();
-                                request.OffsetParam.Uri = ((FullTrack)curr.Item).Uri;
-                                request.PositionMs = curr.ProgressMs;
-                            }
-
-                        }
-                        else if(defaultPlaylistId.Length != 0)
-                        {
-                            request.ContextUri = "spotify:playlist:" + defaultPlaylistId;
-                        }
-                        else 
-                        {
-                            request.Uris = SpotifyGetSavedTracks();
-                            if(curr.Item != null)
-                            {
-                                request.Uris[0] = ((FullTrack)curr.Item).Uri;
-                                request.OffsetParam = new PlayerResumePlaybackRequest.Offset();
-                                request.OffsetParam.Uri = request.Uris[0];
-                                request.PositionMs = curr.ProgressMs;
-                            }
-                            
-                        }
-
-                    }
+                    string deviceID = deviceIDs[listIndex];
                     try {
-                        var task = spotify.Player.ResumePlayback(request);
-                        task.Wait();
+                        spotify.ResumePlayback(deviceID, defaultPlaylistId);
                         if (isSpotifyRadio)
                         {
-                            SpotifySetVolume(volume);
+                            spotify.SetVolume(volume);
                         }
                         else
                         {
-                            SpotifySetVolume(0);
+                            spotify.SetVolume(0);
                         }
+                        hasDevice = true;
                         modMenuPool.CloseAllMenus();
                     }
                     catch(AggregateException ex)
@@ -385,6 +313,7 @@ namespace GTASpot
                     }
                     catch(NoActiveDeviceException ex)
                     {
+                        hasDevice = false;
                         Logger.Log("Transfer Device: " + ex.Message);
                         modMenuPool.CloseAllMenus();
                     }
@@ -411,26 +340,29 @@ namespace GTASpot
         {
             try
             {
+                time = 0;
                 if (item == playPausePlayback)
                 {
-                    var current = SpotifyGetCurrentlyPlaying();
+                    var current = spotify.GetCurrentlyPlaying();
                     if (current != null && current.IsPlaying)
                     {
-                        SpotifyPausePlayback();
+                        spotify.PausePlayback();
                     }
                     else
                     {
-                        SpotifyResumePlayback();
+                        spotify.ResumePlayback();
 
                     }
                 }
                 else if (item == skipTrack)
                 {
-                    SpotifySkipNext();
+                    spotify.SkipNext();
+                    time = (int)(moodUpdateTime - GTA.Game.FPS);
                 }
                 else if (item == prevTrack)
                 {
-                    SpotifySkipPrevious();
+                    spotify.SkipPrevious();
+                    time = (int)(moodUpdateTime - GTA.Game.FPS);
                 }
                 else if (item == volumeLevel)
                 {
@@ -457,19 +389,54 @@ namespace GTASpot
                 else if (item == displayTrackName)
                 {
                     //Send user notification of current track name
-                    var track = SpotifyGetCurrentTrack();
+                    var track = spotify.GetCurrentTrack();
                     if (track != null)
                     {
-                        GTA.UI.Notification.Show(track.Name + " by " + track.Artists[0].Name);
+                        if (track.Type == ItemType.Track)
+                        {
+                            GTA.UI.Notification.Show(((FullTrack)track).Name + " by " + ((FullTrack)track).Artists[0].Name);
+                        }
+                        else
+                        {
+                            GTA.UI.Notification.Show(((FullEpisode)track).Name);
+                        }
+                        
                     }
+                   
                 }
+
             }
             catch (NoActiveDeviceException)
             {
+                hasDevice = false;
                 modMenuPool.CloseAllMenus();
                 activeDevices.Visible = true;
                 GTA.UI.Notification.Show("No active device found. Please set an active device using the menu");
             }
+        }
+        /*
+         * Setup actions for check box items in the menu
+         */
+        private void OnCheckboxChange(UIMenu sender, UIMenuCheckboxItem item, bool Checked)
+        {
+            if(item == moodButton)
+            {
+                matchMood = Checked;
+                if(Checked)
+                {
+                    time = 0;
+                }
+                else {
+                    GTA.GameplayCamera.StopShaking();
+                    GTA.UI.Screen.StopEffects();
+                }
+            }
+            else if(item == shuffleButton)
+            {
+                spotify.SetShuffle(Checked);
+            }
+            
+
         }
 
         /*
@@ -484,25 +451,6 @@ namespace GTASpot
             if(e.KeyCode == menuKey && !modMenuPool.IsAnyMenuOpen())
             {
                 mainMenu.Visible = !mainMenu.Visible;
-            }
-
-        }
-
-        /*
-         * Unused function. This would update the first person radio to display the song name
-         */
-        private void DisplaySpotifyTrackOnRadio(string artist, string track)
-        {
-            try
-            {
-                // Call function.
-                DashboardScaleform.CallFunction("SET_RADIO",
-                        "", "Spotify Radio",
-                        artist, track);
-            }
-            catch (Exception exception)
-            {
-                Logger.Log("Failed to display trackname on Radio dashboard: " + exception.ToString());
             }
 
         }
@@ -529,7 +477,7 @@ namespace GTASpot
          */
         private void SetEngine(bool status)
         {
-            if(obtainedSpotifyClient)
+            if(spotify.obtainedSpotifyClient)
             {
                 isEngineOn = status;
             }
@@ -542,8 +490,8 @@ namespace GTASpot
         {
             try
             {
-                SpotifySetVolume(0);
-            } catch(NoActiveDeviceException) { }
+                spotify.SetVolume(0);
+            } catch(NoActiveDeviceException) {}
         } 
 
         /*
@@ -553,10 +501,12 @@ namespace GTASpot
         {
             try
             {
-                SpotifySetVolume(volume);
+                spotify.SetVolume(volume);
+                hasDevice = true;
             }
             catch(NoActiveDeviceException)
             {
+                hasDevice = false;
                 modMenuPool.CloseAllMenus();
                 activeDevices.Visible = true;
                 GTA.UI.Notification.Show("No active device found. Please set an active device using the menu");
@@ -570,7 +520,7 @@ namespace GTASpot
          */
         private void SetRadioStation(bool status)
         {
-            if (obtainedSpotifyClient)
+            if (spotify.obtainedSpotifyClient)
             {
                 isSpotifyRadio = status;
 
@@ -586,491 +536,40 @@ namespace GTASpot
             
         }
 
-        private DeviceResponse SpotifyGetDevices()
+
+        /*
+         * UUpdate the first person radio to display the song name
+         */
+        private void DisplaySpotifyTrackOnRadio(string artist, string track)
         {
             try
             {
-                var task = spotify.Player.GetAvailableDevices();
-                task.Wait();
-                return task.Result;
-            } catch(AggregateException ex)
-            {
-                Logger.Log("Fetching Available Devices Failed: " + ex.InnerException.Message);
+                // Call function.
+                DashboardScaleform.CallFunction("SET_RADIO",
+                        "", "Spotify Radio",
+                        artist, track);
             }
-            return null;
-        }
-        /*
-         * Wrapper for Spotify Skip Next
-         */
-        private bool SpotifySkipNext()
-        {
-            int i = 0;
-            do
+            catch (Exception exception)
             {
-                try
-                {
-                    var task = spotify.Player.SkipNext();
-                    task.Wait();
-                    return task.Result;
-                }
-                catch (AggregateException ex)
-                {
-                    if (ex.InnerException.GetType() == typeof(APIUnauthorizedException))
-                    {
-                        GuaranteeLogin();
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APITooManyRequestsException))
-                    {
-                        Logger.Log("Skip next failed: Too many requests. " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APIException))
-                    {
-                        APIException e = (APIException)ex.InnerException;
-                        if (e.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                        {
-                            throw new NoActiveDeviceException("No Active Spotify Device Found.");
-                        }
-                        else
-                        {
-                            Logger.Log("Skip next failed: " + e.Response?.StatusCode + e.Message);
-                            i = -1;
-                        }
-                    }
-                    else
-                    {
-                        Logger.Log("Skip next failed: " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                }
-            } while (i == 0);
-            return false;
-        }
-
-        /*
-         * Wrapper for Spotify SKip previous
-         */
-        private bool SpotifySkipPrevious()
-        {
-            int i = 0;
-            do
-            {
-                try
-                {
-                    var task = spotify.Player.SkipPrevious();
-                    task.Wait();
-                    return task.Result;
-                }
-                catch (AggregateException ex)
-                {
-                    if (ex.InnerException.GetType() == typeof(APIUnauthorizedException))
-                    {
-                        GuaranteeLogin();
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APITooManyRequestsException))
-                    {
-                        Logger.Log("Skip prev failed: Too many requests. " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APIException))
-                    {
-                        APIException e = (APIException)ex.InnerException;
-                        if (e.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                        {
-                            throw new NoActiveDeviceException("No Active Spotify Device Found.");
-                        }
-                        else
-                        {
-                            Logger.Log("Skip prev failed: " + e.Response?.StatusCode + e.Message);
-                            i = -1;
-                        }
-                    }
-                    else
-                    {
-                        Logger.Log("Skip prev failed: " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                }
-            } while (i == 0);
-            return false;
-        }
-
-        /*
-         * Wrapper for Spoity Pause
-         */
-        private bool SpotifyPausePlayback()
-        {
-            int i = 0;
-            do
-            {
-                try
-                {
-                    var task = spotify.Player.PausePlayback();
-                    task.Wait();
-                    return task.Result;
-                }
-                catch (AggregateException ex)
-                {
-                    if (ex.InnerException.GetType() == typeof(APIUnauthorizedException))
-                    {
-                        GuaranteeLogin();
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APITooManyRequestsException))
-                    {
-                        Logger.Log("Pause failed: Too many requests. " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APIException))
-                    {
-                        Logger.Log("Pause failed: " + ((APIException)ex.InnerException).Response?.StatusCode + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else
-                    {
-                        Logger.Log("Pause failed: " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                }
-            } while (i == 0);
-            return false;
-        }
-
-        /*
-         * Wrapper for Spotify Resume
-         */
-        private bool SpotifyResumePlayback()
-        {
-            int i = 0;
-            do
-            {
-                try
-                {
-                    var task = spotify.Player.ResumePlayback();
-                    task.Wait();
-                    return task.Result;
-                }
-                catch (AggregateException ex)
-                {
-                    if (ex.InnerException.GetType() == typeof(APIUnauthorizedException))
-                    {
-                        GuaranteeLogin();
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APITooManyRequestsException))
-                    {
-                        Logger.Log("Resume failed:: Too many requests. " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APIException))
-                    {
-                        APIException e = (APIException)ex.InnerException;
-                        if (e.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                        {
-                            throw new NoActiveDeviceException("No Active Spotify Device Found.");
-                        }
-                        else
-                        {
-                            Logger.Log("Resume failed: " + e.Response?.StatusCode + e.Message);
-                            i = -1;
-                        }
-                    }
-                    else
-                    {
-                        Logger.Log("Resume failed: " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                }
-            } while (i == 0);
-            return false;
-        }
-
-        /*
-         * Wrapper for getting currently playing Spotify
-         */
-        private CurrentlyPlaying SpotifyGetCurrentlyPlaying()
-        {
-            int i = 0;
-            do
-            {
-                try
-                {
-                    var task = spotify.Player.GetCurrentlyPlaying(new PlayerCurrentlyPlayingRequest());
-                    task.Wait();
-                    return task.Result;
-                }
-                catch (AggregateException ex)
-                {
-                    if (ex.InnerException.GetType() == typeof(APIUnauthorizedException))
-                    {
-                        GuaranteeLogin();
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APITooManyRequestsException))
-                    {
-                        Logger.Log("Get current playing failed: Too many requests. " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APIException))
-                    {
-                        Logger.Log("Get current playing failed: " + ((APIException)ex.InnerException).Response?.StatusCode + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else
-                    {
-                        Logger.Log("Get current playing failed: " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                }
-            } while (i == 0);
-            return null;
-        }
-
-        /*
-         * Wrapper for Spotify set volume
-         */
-        private bool SpotifySetVolume(int volumeRequest)
-        {
-            int i = 0;
-            do
-            {
-                try
-                {
-                    var task = spotify.Player.SetVolume(new PlayerVolumeRequest(volumeRequest));
-                    task.Wait();
-                    return task.Result;
-                }
-                catch (AggregateException ex)
-                {
-                    if (ex.InnerException.GetType() == typeof(APIUnauthorizedException))
-                    {
-                        GuaranteeLogin();
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APITooManyRequestsException))
-                    {
-                        Logger.Log("Volume change failed: Too many requests. " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APIException))
-                    {
-                        APIException e = (APIException)ex.InnerException;
-                        if (e.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                        {
-                            throw new NoActiveDeviceException("No Active Spotify Device Found.");
-                        }
-                        else
-                        {
-                            Logger.Log("Volume change failed: " + e.Response?.StatusCode + e.Message);
-                            i = -1;
-                        }
-                    }
-                    else
-                    {
-                        Logger.Log("Volume change failed: " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                }
-            } while (i == 0);
-            return false;
-        }
-
-        /*
-         * Wrapper to set Spotify shuffle
-         */
-        private bool SpotifySetShuffle(bool shuffleRequest)
-        {
-            int i = 0;
-            do
-            {
-                try
-                {
-                    var task = spotify.Player.SetShuffle(new PlayerShuffleRequest(shuffleRequest));
-                    task.Wait();
-                    return task.Result;
-                    
-                }
-                catch (AggregateException ex)
-                {
-                    if (ex.InnerException.GetType() == typeof(APIUnauthorizedException))
-                    {
-                        GuaranteeLogin();
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APITooManyRequestsException))
-                    {
-                        Logger.Log("Shuffle change failed: Too many requests. " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APIException))
-                    {
-                        Logger.Log("Shuffle change failed: " + ((APIException)ex.InnerException).Response?.StatusCode + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else
-                    {
-                        Logger.Log("Shuffle change failed: " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                }
-            } while (i == 0);
-            return false;
-        }
-
-        /*
-         * Wrapper to get Spotify current playlist
-         */
-        private Paging<SimplePlaylist> SpotifyGetCurrentPlaylist()
-        {
-            int i = 0;
-            do
-            {
-                try
-                {
-                    var task = spotify.Playlists.CurrentUsers();
-                    task.Wait();
-                    return task.Result;
-                }
-                catch (AggregateException ex)
-                {
-                    if (ex.InnerException.GetType() == typeof(APIUnauthorizedException))
-                    {
-                        GuaranteeLogin();
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APITooManyRequestsException))
-                    {
-                        Logger.Log("Retrieve current user playlists failed: Too many requests. " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APIException))
-                    {
-                        Logger.Log("Retrieve current user playlists failed: " + ((APIException)ex.InnerException).Response?.StatusCode + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else
-                    {
-                        Logger.Log("Retrieve current user playlists failed: " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                }
-            } while (i == 0);
-            return null;
-        }
-
-        /*
-         * Gets the tracks from the user's saved tracks library
-         */
-        private IList<string> SpotifyGetSavedTracks()
-        {
-            IList<string> uris = new List<string>();
-            try
-            {
-                var task = spotify.Library.GetTracks();
-                task.Wait();
-                var pages = task.Result;
-                var task2 = spotify.PaginateAll(pages);
-                task2.Wait();
-                var tracks = task2.Result;
-                foreach (var track in tracks)
-                {
-                    uris.Add(track.Track.Uri);
-                }
+                Logger.Log("Failed to display trackname on Radio dashboard: " + exception.ToString());
             }
-            catch(AggregateException ex)
+
+        }
+
+        /*
+         * Determine whether item is track or podcast then display on radio
+         */
+        private void UpdateInGameRadio(IPlayableItem track)
+        {
+            if(track.Type == ItemType.Track)
             {
-                Logger.Log("Failed to retrieve user's saved tracks: " + ex.InnerException.Message);
+                DisplaySpotifyTrackOnRadio(((FullTrack)track).Name, ((FullTrack)track).Artists[0].Name);
             }
-            return uris;
-        }
-
-        /*
-         * Wrapper to get Page object from Spotify
-         */
-        private IList<SimplePlaylist> SpotifyPage(IPaginatable<SimplePlaylist> page)
-        {
-            int i = 0;
-            do
+            else
             {
-                try
-                {
-                    var task = spotify.PaginateAll(page);
-                    task.Wait();
-                    return task.Result;
-                }
-                catch (AggregateException ex)
-                {
-                    if (ex.InnerException.GetType() == typeof(APIUnauthorizedException))
-                    {
-                        GuaranteeLogin();
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APITooManyRequestsException))
-                    {
-                        Logger.Log("Retrieve paging failed: Too many requests. " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APIException))
-                    {
-                        Logger.Log("Retrieve paging failed: " + ((APIException)ex.InnerException).Response?.StatusCode + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else
-                    {
-                        Logger.Log("Retrieve paging failed: " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                }
-            } while (i == 0);
-            return null;
-        }
-
-        /*
-         * Returns the currently playing track from Spotify
-         */
-        private FullTrack SpotifyGetCurrentTrack()
-        {
-            int i = 0;
-            do
-            {
-                try
-                {
-                    var task = spotify.Player.GetCurrentlyPlaying(new PlayerCurrentlyPlayingRequest());
-                    task.Wait();
-                    if(task.Result == null)
-                    {
-                        return null;
-                    }
-                    var track = task.Result.Item as FullTrack;
-                    return track;
-
-                }
-                catch(AggregateException ex)
-                {
-                    if (ex.InnerException.GetType() == typeof(APIUnauthorizedException))
-                    {
-                        GuaranteeLogin();
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APITooManyRequestsException))
-                    {
-                        Logger.Log("Get Current Track failed: Too many requests. " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else if (ex.InnerException.GetType() == typeof(APIException))
-                    {
-                        Logger.Log("Get Current Track failed: " + ((APIException)ex.InnerException).Response?.StatusCode + ex.InnerException.Message);
-                        i = -1;
-                    }
-                    else
-                    {
-                        Logger.Log("Get Current Track failed: " + ex.InnerException.Message);
-                        i = -1;
-                    }
-                }
-            } while (i == 0);
-            return null;
-        }
-
-        /*
-         * Unused function. It would display the track name on the display of the first person radio
-         */
-        private void UpdateInGameRadio()
-        {
-            var track = SpotifyGetCurrentTrack();
-            DisplaySpotifyTrackOnRadio(track.Name, track.Artists[0].Name);
+                DisplaySpotifyTrackOnRadio(((FullEpisode)track).Name, "");
+            }
+            
         }
 
         private bool GetEngineStatus()
@@ -1122,83 +621,43 @@ namespace GTASpot
             {
                 SetRadioStation(false);
             }
-           /* else if(isSpotifyRadio)
+            if(matchMood && GTA.GameplayCamera.IsShaking && !isSpotifyRadio)
             {
-                updateInGameRadio();
-
-            }*/
-
-        }
-
-        /*
-         * Spotify requests need to be made at the start of the game
-         */
-        private async void InitialSpotifyRequests()
-        {
-            if (obtainedSpotifyClient)
-            {
-                try
-                {
-                    await spotify.Player.SetVolume(new PlayerVolumeRequest(0));
-                    var resumeRequest = new PlayerResumePlaybackRequest();
-                    if(defaultPlaylistId.Length != 0)
-                    {
-                        resumeRequest.ContextUri = "spotify:playlist:" + defaultPlaylistId;
-                    }
-                    await spotify.Player.ResumePlayback(resumeRequest);
-                } catch(Exception ex)
-                {
-                    Logger.Log("Error In Initial Spotify Requests: " + ex.Message);
-                }
+                GTA.GameplayCamera.StopShaking();
+                GTA.UI.Screen.StopEffects();
             }
-        }
-
-        /*
-         * The browser connects to Spotify's website and Spotify returns an authorization code.
-         * This is following the Authorization Code Flow from Spotify's API documentation.
-         * https://developer.spotify.com/documentation/general/guides/authorization-guide/#authorization-code-flow
-         */
-        private void GuaranteeLogin()
-        {
-            DisplayBrowser();
-            if(code == null || code.Length == 0)
+            if(isSpotifyRadio && hasDevice && time == 0)
             {
-                Logger.Log("ERROR: Did not login to Spotify");
-                obtainedSpotifyClient = false;
+                var track = spotify.GetCurrentTrack();
+                if(track != null)
+                {
+                    UpdateInGameRadio(track);
+                    bool isTrack = track.Type == ItemType.Track;
+                    if (matchMood && isTrack)
+                    {
+                        var trackid = ((FullTrack)track).Id;
+                        if(trackid != null && trackid.Length != 0)
+                        {
+                            moodMatcher.GetMood(spotify.GetAudioFeatures(trackid));
+                        }
+                    }
+                    float fps = GTA.Game.FPS;
+                    moodUpdateTime = isTrack ? ((FullTrack)track).DurationMs : ((FullEpisode)track).DurationMs;
+                    moodUpdateTime = (int)((moodUpdateTime * fps / 1000) + fps); // convert to tick time and one second worth of frames
+                    var current = spotify.GetCurrentPlayback();
+                    time = (int)(current.ProgressMs * fps / 1000);
+                }
+
+            }
+            else if(isSpotifyRadio)
+            {
+                time = (time + 1) % moodUpdateTime;
             }
             else
             {
-                spotify = new SpotifyClient(code);
-                obtainedSpotifyClient = true;
+                time = 0;
             }
-        }
-
-        /*
-         * Opens chromium browser
-         */
-        private void DisplayBrowser()
-        {
             
-            var proc = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "spotifyRadio/SpotifyRadio.exe",
-                    Arguments = "",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    CreateNoWindow = true
-                }
-            };
-            try
-            {
-                proc.Start();
-                code = proc.StandardOutput.ReadLine();
-            }
-            catch (Exception e)
-            {
-                Logger.Log("ERROR: Could not launch SpotifyRadio.exe\n" + "Exception info: " + e.Message);
-            }
 
         }
 
