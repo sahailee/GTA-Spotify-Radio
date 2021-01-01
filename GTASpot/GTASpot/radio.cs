@@ -205,7 +205,7 @@ namespace GTASpot
             playlistSubMenu.RefreshIndex();
 
 
-            playlistSubMenu.OnItemSelect += async (sender, item, index) =>
+            playlistSubMenu.OnItemSelect += (sender, item, index) =>
             {
                 if (item == setPlaylist)
                 {
@@ -218,7 +218,7 @@ namespace GTASpot
                     {
                         spotify.ResumePlayback(playlistUris[listIndex]);
                     }
-                    
+                    time = (int)(moodUpdateTime - GTA.Game.FPS);
                     modMenuPool.CloseAllMenus();
                 }
                 else if(item == refresh)
@@ -284,15 +284,17 @@ namespace GTASpot
                     string deviceID = deviceIDs[listIndex];
                     try {
                         spotify.ResumePlayback(deviceID, defaultPlaylistId);
+                        time = (int)(moodUpdateTime - GTA.Game.FPS);
+                        hasDevice = true;
                         if (isSpotifyRadio)
                         {
+                            Wait(1000);
                             spotify.SetVolume(volume);
                         }
                         else
                         {
                             spotify.SetVolume(0);
                         }
-                        hasDevice = true;
                         modMenuPool.CloseAllMenus();
                     }
                     catch(AggregateException ex)
@@ -309,11 +311,11 @@ namespace GTASpot
                         {
                             Logger.Log("Transfer Device: " + ex.Message);
                         }
+                        hasDevice = false;
                         modMenuPool.CloseAllMenus();
                     }
                     catch(NoActiveDeviceException ex)
                     {
-                        hasDevice = false;
                         Logger.Log("Transfer Device: " + ex.Message);
                         modMenuPool.CloseAllMenus();
                     }
